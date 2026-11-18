@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import type {
   GitHubPullRequest,
   GitHubIssue,
@@ -12,6 +12,12 @@ import { PR_QUERY, ISSUE_QUERY } from "../api/queries/github";
 import type { Octokits } from "../api/client";
 import { downloadCommentImages } from "../utils/image-downloader";
 import type { CommentWithImages } from "../utils/image-downloader";
+
+export function computeFileSHA(filePath: string): string {
+  return execFileSync("git", ["hash-object", "--", filePath], {
+    encoding: "utf-8",
+  }).trim();
+}
 
 type FetchDataParams = {
   octokits: Octokits;
@@ -103,9 +109,7 @@ export async function fetchGitHubData({
     changedFilesWithSHA = changedFiles.map((file) => {
       try {
         // Use git hash-object to compute the SHA for the current file content
-        const sha = execSync(`git hash-object "${file.path}"`, {
-          encoding: "utf-8",
-        }).trim();
+        const sha = computeFileSHA(file.path);
         return {
           ...file,
           sha,
