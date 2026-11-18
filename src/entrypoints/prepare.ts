@@ -127,6 +127,7 @@ async function run() {
       context.repository.owner,
       context.repository.repo,
       branchInfo.currentBranch,
+      finalCommentId.toString(),
     );
     core.setOutput("mcp_config", mcpConfig);
   } catch (error) {
