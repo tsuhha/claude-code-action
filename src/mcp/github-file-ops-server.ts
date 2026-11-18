@@ -7,6 +7,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import fetch from "node-fetch";
 import { GITHUB_API_URL } from "../github/api/config";
+import { assertAllowedCommentId, resolveRepoScope } from "./repo-scope";
 
 type GitHubRef = {
   object: {
@@ -38,6 +39,7 @@ const REPO_OWNER = process.env.REPO_OWNER;
 const REPO_NAME = process.env.REPO_NAME;
 const BRANCH_NAME = process.env.BRANCH_NAME;
 const REPO_DIR = process.env.REPO_DIR || process.cwd();
+const CLAUDE_COMMENT_ID = process.env.CLAUDE_COMMENT_ID;
 
 if (!REPO_OWNER || !REPO_NAME || !BRANCH_NAME) {
   console.error(
@@ -45,6 +47,8 @@ if (!REPO_OWNER || !REPO_NAME || !BRANCH_NAME) {
   );
   process.exit(1);
 }
+
+const ALLOWED_REPO = { owner: REPO_OWNER, repo: REPO_NAME };
 
 const server = new McpServer({
   name: "GitHub File Operations Server",
@@ -444,20 +448,28 @@ server.tool(
   "create_issue",
   "Create a new issue in a GitHub repository",
   {
-    owner: z.string().describe("Repository owner"),
-    repo: z.string().describe("Repository name"),
+    owner: z
+      .string()
+      .optional()
+      .describe(`Repository owner (must be ${REPO_OWNER})`),
+    repo: z
+      .string()
+      .optional()
+      .describe(`Repository name (must be ${REPO_NAME})`),
     title: z.string().describe("Issue title"),
     body: z.string().describe("Issue body/description"),
     assignees: z.array(z.string()).optional().describe("Array of usernames to assign"),
     labels: z.array(z.string()).optional().describe("Array of label names"),
     milestone: z.number().optional().describe("Milestone number")
   },
-  async ({ owner, repo, title, body, assignees, labels, milestone }) => {
+  async ({ owner: requestedOwner, repo: requestedRepo, title, body, assignees, labels, milestone }) => {
+    const requested = { owner: requestedOwner, repo: requestedRepo };
     try {
       const githubToken = process.env.GITHUB_TOKEN;
       if (!githubToken) {
         throw new Error("GITHUB_TOKEN environment variable is required");
       }
+      const { owner, repo } = resolveRepoScope(requested, ALLOWED_REPO);
 
       const createUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/issues`;
       const requestBody: any = {
@@ -524,21 +536,34 @@ server.tool(
 // Update issue comment tool - 新規追加！
 server.tool(
   "update_issue_comment",
-  "Update a GitHub issue comment",
+  "Update the Claude tracking comment on this repository",
   {
-    owner: z.string().describe("Repository owner"),
-    repo: z.string().describe("Repository name"),
+    owner: z
+      .string()
+      .optional()
+      .describe(`Repository owner (must be ${REPO_OWNER})`),
+    repo: z
+      .string()
+      .optional()
+      .describe(`Repository name (must be ${REPO_NAME})`),
     commentId: z.string().describe("Comment ID to update"),
     body: z.string().describe("New comment body"),
   },
-  async ({ owner, repo, commentId, body }) => {
+  async ({ owner: requestedOwner, repo: requestedRepo, commentId, body }) => {
+    const requested = { owner: requestedOwner, repo: requestedRepo };
     try {
       const githubToken = process.env.GITHUB_TOKEN;
       if (!githubToken) {
         throw new Error("GITHUB_TOKEN environment variable is required");
       }
+      const { owner, repo } = resolveRepoScope(requested, ALLOWED_REPO);
 
-      const updateUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/issues/comments/${commentId}`;
+      const allowedCommentId = assertAllowedCommentId(
+        commentId,
+        CLAUDE_COMMENT_ID,
+      );
+
+      const updateUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/issues/comments/${allowedCommentId}`;
       const response = await fetch(updateUrl, {
         method: "PATCH",
         headers: {
@@ -589,8 +614,14 @@ server.tool(
   "create_pull_request",
   "Create a new pull request in a GitHub repository",
   {
-    owner: z.string().describe("Repository owner"),
-    repo: z.string().describe("Repository name"),
+    owner: z
+      .string()
+      .optional()
+      .describe(`Repository owner (must be ${REPO_OWNER})`),
+    repo: z
+      .string()
+      .optional()
+      .describe(`Repository name (must be ${REPO_NAME})`),
     title: z.string().describe("Pull request title"),
     body: z.string().describe("Pull request body/description"),
     head: z.string().describe("The name of the branch where your changes are implemented"),
@@ -598,12 +629,14 @@ server.tool(
     draft: z.boolean().optional().describe("Whether to create the pull request as a draft"),
     maintainer_can_modify: z.boolean().optional().describe("Whether maintainers can modify the pull request")
   },
-  async ({ owner, repo, title, body, head, base, draft, maintainer_can_modify }) => {
+  async ({ owner: requestedOwner, repo: requestedRepo, title, body, head, base, draft, maintainer_can_modify }) => {
+    const requested = { owner: requestedOwner, repo: requestedRepo };
     try {
       const githubToken = process.env.GITHUB_TOKEN;
       if (!githubToken) {
         throw new Error("GITHUB_TOKEN environment variable is required");
       }
+      const { owner, repo } = resolveRepoScope(requested, ALLOWED_REPO);
 
       const createUrl = `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls`;
       const requestBody: any = {
@@ -675,8 +708,14 @@ server.tool(
   "list_issues",
   "List issues in a GitHub repository",
   {
-    owner: z.string().describe("Repository owner"),
-    repo: z.string().describe("Repository name"),
+    owner: z
+      .string()
+      .optional()
+      .describe(`Repository owner (must be ${REPO_OWNER})`),
+    repo: z
+      .string()
+      .optional()
+      .describe(`Repository name (must be ${REPO_NAME})`),
     state: z.enum(["open", "closed", "all"]).optional().describe("Issue state filter"),
     labels: z.string().optional().describe("Comma-separated list of label names"),
     assignee: z.string().optional().describe("Filter by assignee username"),
@@ -686,12 +725,14 @@ server.tool(
     per_page: z.number().optional().describe("Number of results per page (max 100)"),
     page: z.number().optional().describe("Page number")
   },
-  async ({ owner, repo, state, labels, assignee, creator, sort, direction, per_page, page }) => {
+  async ({ owner: requestedOwner, repo: requestedRepo, state, labels, assignee, creator, sort, direction, per_page, page }) => {
+    const requested = { owner: requestedOwner, repo: requestedRepo };
     try {
       const githubToken = process.env.GITHUB_TOKEN;
       if (!githubToken) {
         throw new Error("GITHUB_TOKEN environment variable is required");
       }
+      const { owner, repo } = resolveRepoScope(requested, ALLOWED_REPO);
 
       // Build query parameters
       const params = new URLSearchParams();
